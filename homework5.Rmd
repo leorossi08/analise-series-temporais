@@ -1,0 +1,177 @@
+---
+title: "Homework 5: Modelagem GARCH para as Ações da VALE (VALE3.SA)"
+author: "Leonardo Rossi Dourado"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cerulean
+---
+
+```{r setup, include=FALSE}
+# Configurações globais para os chunks do R Markdown
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width=10, fig.height=6)
+```
+
+### **Introdução**
+
+Este documento detalha a modelagem da volatilidade para os log-retornos diários das ações da VALE (VALE3.SA). O objetivo é ajustar, comparar e selecionar o melhor modelo da família GARCH para, em seguida, analisar seus resíduos e gerar previsões para a volatilidade condicional. Serão testados os modelos GARCH(1,1), EGARCH(1,1) e GJR-GARCH(1,1) com distribuições de erro Normal e t-Student.
+
+### **1. Carregamento dos Pacotes**
+
+Primeiro, carregamos todas as bibliotecas necessárias para a análise. Se os pacotes não estiverem instalados, será necessário instalá-los primeiro (o código para instalação está comentado).
+
+```{r pacotes}
+# Se os pacotes não estiverem instalados, descomente as linhas abaixo para instalá-los.
+# install.packages("BatchGetSymbols")
+# install.packages("rugarch")
+# install.packages("tidyverse")
+# install.packages("tbl2xts")
+
+# Carregar as bibliotecas
+library(BatchGetSymbols)
+library(rugarch)
+library(tidyverse)
+library(tbl2xts)
+
+cat("--- Pacotes carregados com sucesso! ---\n")
+```
+
+### **2. Obtenção e Preparação dos Dados**
+
+Os dados de log-retornos diários para a VALE3.SA são obtidos a partir de 2019 até a data atual.
+
+```{r dados}
+# Definir o ticker da VALE e o período de análise
+ticker_vale <- "VALE3.SA"
+primeira_data <- '2019-01-01'
+ultima_data <- Sys.Date()
+
+# Obter os dados de log-retornos diários
+cat("--- Baixando dados para VALE3.SA... ---\n")
+lista_dados_vale <- BatchGetSymbols(
+  tickers = ticker_vale,
+  first.date = primeira_data,
+  last.date = ultima_data,
+  type.return = "log",
+  freq.data = "daily"
+)
+
+# Extrair o dataframe de retornos e remover valores ausentes (NA)
+retornos_vale <- lista_dados_vale$df.tickers %>%
+  select(ticker, ref.date, ret.closing.prices) %>%
+  na.omit()
+
+# Visualizar as primeiras linhas dos dados
+cat("--- Dados obtidos e preparados. Amostra dos dados: ---\n")
+head(retornos_vale)
+```
+
+### **3. Ajuste dos Modelos da Família GARCH**
+
+Nesta etapa, ajustamos 6 modelos diferentes para a série de retornos: GARCH(1,1), EGARCH(1,1) e GJR-GARCH(1,1), cada um com distribuição Normal e t-Student.
+
+```{r ajuste_modelos}
+# Extrair apenas a coluna de retornos para usar no rugarch
+dados_para_fit <- retornos_vale %>% select(ret.closing.prices)
+
+# Especificação dos modelos
+spec_garch_norm <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)), distribution.model = "norm")
+spec_garch_std  <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)), distribution.model = "std")
+spec_egarch_norm <- ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)), distribution.model = "norm")
+spec_egarch_std  <- ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)), distribution.model = "std")
+spec_gjr_norm <- ugarchspec(variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)), distribution.model = "norm")
+spec_gjr_std  <- ugarchspec(variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)), distribution.model = "std")
+
+# Ajuste de todos os modelos
+fit_garch_norm <- ugarchfit(spec = spec_garch_norm, data = dados_para_fit, solver = 'hybrid')
+fit_garch_std  <- ugarchfit(spec = spec_garch_std,  data = dados_para_fit, solver = 'hybrid')
+fit_egarch_norm<- ugarchfit(spec = spec_egarch_norm,data = dados_para_fit, solver = 'hybrid')
+fit_egarch_std <- ugarchfit(spec = spec_egarch_std, data = dados_para_fit, solver = 'hybrid')
+fit_gjr_norm   <- ugarchfit(spec = spec_gjr_norm,   data = dados_para_fit, solver = 'hybrid')
+fit_gjr_std    <- ugarchfit(spec = spec_gjr_std,    data = dados_para_fit, solver = 'hybrid')
+
+cat("--- Todos os modelos foram ajustados com sucesso! ---\n")
+```
+
+### **4. Comparação e Seleção do Melhor Modelo**
+
+Utilizamos os Critérios de Informação (Akaike, Bayes, etc.) para comparar os modelos. O modelo com os menores valores é considerado o mais adequado.
+
+```{r comparacao_modelos}
+# Criar uma lista com todos os modelos ajustados
+lista_modelos <- list(
+  GARCH_Normal = fit_garch_norm,
+  GARCH_tStudent = fit_garch_std,
+  EGARCH_Normal = fit_egarch_norm,
+  EGARCH_tStudent = fit_egarch_std,
+  GJR_Normal = fit_gjr_norm,
+  GJR_tStudent = fit_gjr_std
+)
+
+# Extrair e exibir os critérios de informação
+criterios_info <- t(sapply(lista_modelos, infocriteria))
+
+# Adicionar nomes às colunas para clareza e robustez.
+colnames(criterios_info) <- c("Akaike", "Bayes", "Shibata", "Hannan-Quinn")
+print(criterios_info)
+
+# Identificar o melhor modelo com base no Critério de Akaike (primeira coluna)
+nome_melhor_modelo <- names(which.min(criterios_info[, 1]))
+cat(paste("\n=> O MELHOR MODELO, com base no critério de Akaike, é o:", nome_melhor_modelo, "\n"))
+
+# Armazenar o melhor modelo
+melhor_modelo <- lista_modelos[[nome_melhor_modelo]]
+```
+
+### **5. Análise do Melhor Modelo Selecionado**
+
+Após a seleção, exibimos o sumário completo do modelo escolhido e realizamos uma análise gráfica de seus resíduos para verificar a qualidade do ajuste.
+
+#### **5.1 Sumário do Modelo**
+
+```{r sumario_modelo}
+# Imprimir o sumário detalhado
+print(melhor_modelo)
+```
+
+#### **5.2 Análise Gráfica dos Resíduos**
+
+Verificamos se os resíduos se comportam como ruído branco, o que indicaria um bom ajuste.
+
+```{r graficos_residuos, fig.cap="Gráficos de diagnóstico do melhor modelo."}
+# Gráfico 1: Volatilidade Condicional vs Retornos
+plot(melhor_modelo, which = 3)
+# Gráfico 2: Gráfico Q-Q dos Resíduos Padronizados
+plot(melhor_modelo, which = 9)
+# Gráfico 3: Autocorrelação (ACF) dos Resíduos Padronizados
+plot(melhor_modelo, which = 10)
+# Gráfico 4: Autocorrelação (ACF) dos Resíduos Padronizados ao Quadrado
+plot(melhor_modelo, which = 11)
+```
+
+### **6. Previsão da Volatilidade Condicional**
+
+Finalmente, utilizamos o modelo selecionado para prever a volatilidade (desvio padrão condicional) para os próximos 10 dias de negociação.
+
+```{r previsao}
+# Definir o número de períodos à frente para a previsão
+n_dias_previsao <- 10
+
+# Realizar a previsão
+previsao <- ugarchforecast(melhor_modelo, n.ahead = n_dias_previsao)
+
+# Exibir a tabela com os valores previstos para a volatilidade
+cat("Valores previstos para o desvio padrão condicional (volatilidade):\n")
+print(sigma(previsao))
+```
+
+#### **Gráfico da Previsão**
+
+O gráfico abaixo mostra a série de volatilidade condicional ajustada e a sua previsão para os próximos 10 dias.
+
+```{r grafico_previsao, fig.cap="Previsão da volatilidade condicional para 10 dias."}
+# Gerar o gráfico da previsão da volatilidade
+p <- plot(previsao, which = 3)
+p

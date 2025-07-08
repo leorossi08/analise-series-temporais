@@ -1,0 +1,342 @@
+---
+title: "Homework 3"
+author: "Leonardo Rossi Dourado"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+    theme: united
+---
+
+```{r setup, include=FALSE}
+# Configurações globais para os chunks de código
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = 'center')
+```
+
+## Carregando os Pacotes Necessários
+
+Antes de começar, vamos carregar todas as bibliotecas que serão utilizadas. Lembre-se de instalar qualquer pacote que ainda não esteja em sua máquina usando o comando `install.packages("nome_do_pacote")`.
+
+```{r pacotes}
+# Pacotes para baixar dados financeiros
+library(BatchGetSymbols) 
+
+# Pacotes para manipulação e análise de dados
+library(tidyverse)
+library(dplyr)
+library(purrr)
+
+# Pacotes para análise de séries temporais e modelagem
+library(forecast)
+library(tseries)
+library(timeSeries)
+library(xts)
+
+# Pacotes para visualização e formatação de tabelas
+library(ggthemes)
+library(xtable)
+```
+
+---
+
+## Exercício 1: Melhor modelo ARMA para o Ibovespa (2021-Presente)
+
+**Enunciado:** *Usando todos os passos vistos no módulo sobre ARMA, encontre o melhor modelo para os retornos diários do índice Ibovespa. Utilize o período de 2021-presente. Você pode usar a função `auto.arima`, mas deve fazer a identificação do modelo usando as FAC e FACP, diagnóstico, etc.*
+
+### Passo 1: Obtenção e Preparação dos Dados
+
+Primeiro, baixamos os dados do Ibovespa (`^BVSP`) a partir do início de 2021 e calculamos os retornos logarítmicos diários.
+
+```{r dados_ibov}
+# Definir o ticker e o período de análise
+tickers_ibov <- c("^BVSP")
+start_date <- '2021-01-01'
+end_date <- Sys.Date() # Usamos Sys.Date() para pegar até a data atual
+
+# Baixar os dados usando BatchGetSymbols
+ibov_raw <- BatchGetSymbols(tickers = tickers_ibov,
+                            first.date = start_date,
+                            last.date = end_date,
+                            type.return = "log",
+                            freq.data = "daily")
+
+# Selecionar e preparar a série de retornos, removendo NAs
+retornos_ibov <- ibov_raw$df.tickers %>%
+  select(ref.date, ret.closing.prices) %>%
+  na.omit() 
+
+# Converter para um objeto de série temporal (ts) para as funções de análise
+retornos_ibov_ts <- as.ts(retornos_ibov$ret.closing.prices)
+```
+
+### (a) Análise Visual da Série
+
+Plotamos a série de retornos para observar seu comportamento e verificar fatos estilizados, como o agrupamento de volatilidade.
+
+```{r visual_ibov}
+# Plotando a série de retornos
+ggplot(retornos_ibov, aes(x = ref.date, y = ret.closing.prices)) +
+  geom_line(color = "steelblue", alpha = 0.8) +
+  labs(title = "Retornos Diários do Ibovespa (2021 - Presente)",
+       x = "Data",
+       y = "Retorno Logarítmico") +
+  theme_economist_white()
+
+# Teste de estacionariedade (Augmented Dickey-Fuller)
+cat("Resultado do Teste de Dickey-Fuller Aumentado:\n")
+adf.test(retornos_ibov_ts)
+```
+A série de retornos aparenta ser estacionária, oscilando em torno de uma média zero. O teste ADF confirma essa impressão (p-valor muito baixo).
+
+### (b) Análise da FAC e FACP (Identificação)
+
+Analisamos as Funções de Autocorrelação (FAC) e Autocorrelação Parcial (FACP) para identificar as ordens `p` (AR) e `q` (MA).
+
+```{r fac_facp_ibov}
+# Usamos tsdisplay para ver a série, FAC e FACP de uma vez
+tsdisplay(retornos_ibov_ts, lag.max = 40, main = "FAC e FACP dos Retornos do Ibovespa")
+```
+
+**Interpretação:**
+A análise da FAC e FACP mostra alguns picos significativos em lags baixos, sugerindo que um modelo misto ARMA(p,q) pode ser apropriado para capturar a dinâmica da série.
+
+### (c) Estimação dos Modelos
+
+Vamos estimar os modelos sugeridos pela análise visual e compará-los. Também rodaremos o `auto.arima` para referência.
+
+```{r estimacao_ibov}
+# Modelo 1: ARMA(2, 2) - Baseado nos primeiros picos de FAC e FACP
+modelo_22 <- arima(retornos_ibov_ts, order = c(2, 0, 2))
+
+# Modelo 2: ARMA(3, 3) - Uma alternativa um pouco mais complexa
+modelo_33 <- arima(retornos_ibov_ts, order = c(3, 0, 3))
+
+# Rodar o auto.arima para comparação
+modelo_auto <- auto.arima(retornos_ibov_ts, trace = FALSE, seasonal = FALSE)
+
+# Exibir os resultados
+cat("--- Modelo ARMA(2,2) ---\n")
+print(modelo_22)
+
+cat("\n--- Modelo ARMA(3,3) ---\n")
+print(modelo_33)
+
+cat("\n--- Resultado do auto.arima ---\n")
+print(modelo_auto)
+```
+
+**Comparação e Escolha do Modelo:**
+A função `auto.arima` selecionou um modelo **ARIMA(0,0,0) with zero mean**, que é o mais parcimonioso possível, indicando que, pelo critério AIC, a complexidade adicional dos modelos ARMA não compensa a melhoria no ajuste.
+
+No entanto, a análise visual da FAC e FACP sugere a presença de autocorrelação. Vamos comparar os modelos que estimamos manualmente:
+* **ARMA(2,2):** AIC = -6807.9
+* **ARMA(3,3):** AIC = -6805.93
+
+O modelo **ARMA(2,2)** possui um valor de AIC ligeiramente menor que o ARMA(3,3), indicando um melhor ajuste para a complexidade. Além disso, é um modelo mais parcimonioso. Por essas razões, e apesar da sugestão do `auto.arima`, **vamos escolher o modelo ARMA(2,2)** para a continuação da análise, por ser uma representação mais rica da dinâmica observada na FAC e FACP.
+
+### (d) Diagnóstico dos Resíduos
+
+Agora, verificamos se os resíduos do nosso modelo escolhido, o ARMA(2,2), se comportam como ruído branco.
+
+```{r diagnostico_ibov}
+# Usamos o modelo escolhido: ARMA(2,2)
+residuos <- residuals(modelo_22)
+
+# Gráfico, FAC e FACP dos resíduos
+tsdisplay(residuos, lag.max = 40, main = "Diagnóstico dos Resíduos do Modelo ARMA(2,2)")
+
+# Teste de Ljung-Box
+# H0: Os resíduos são independentes (não há autocorrelação).
+cat("\nResultado do Teste de Ljung-Box para o modelo ARMA(2,2):\n")
+Box.test(residuos, lag = 20, type = "Ljung-Box")
+```
+
+**Análise do Diagnóstico:**
+* O gráfico dos resíduos parece aleatório e centrado em zero.
+* As funções FAC e FACP dos resíduos não mostram mais picos significativos, indicando que o modelo capturou bem a estrutura de autocorrelação linear da série.
+* O teste de Ljung-Box apresenta um p-valor alto (> 0.05), confirmando que não podemos rejeitar a hipótese de que os resíduos se comportam como ruído branco.
+
+O modelo **ARMA(2,2)** passou no diagnóstico e é considerado adequado.
+
+---
+
+## Exercício 2: Previsão para o Ibovespa
+
+**Enunciado:** *Para o modelo escolhido no exercício anterior, calcule as previsões para 5 períodos à frente, com seu intervalo de confiança correspondente.*
+
+Usamos a função `forecast` no nosso modelo ARMA(2,2) para prever os próximos 5 dias úteis.
+
+```{r previsao_ibov}
+# Prever 5 passos à frente com o modelo ARMA(2,2)
+previsao <- forecast(modelo_22, h = 5)
+
+# Exibir a previsão em formato de tabela
+cat("Previsão para os próximos 5 períodos (Modelo ARMA(2,2)):\n")
+print(previsao)
+
+# Plotar a previsão com intervalos de confiança de 80% e 95%
+plot(previsao, main = "Previsão de 5 Dias para os Retornos do Ibovespa - Modelo ARMA(2,2)")
+```
+
+A previsão mostra os valores esperados para os próximos 5 dias. Como é típico para retornos financeiros, a previsão de longo prazo converge rapidamente para a média da série.
+
+---
+
+## Exercício 3: Análise de Ações do S&P 500
+
+**Enunciado:** *Utilize a função `BatchGetSymbols::GetSP500Stocks` para baixar dados de todas ações pertencentes ao atual índice SP500. Utilizando seus conhecimentos sobre `dplyr`, estime um modelo ARMA para os retornos de cada ação. No mesmo dataframe de saída, crie uma nova coluna com a previsão em t+1 de cada modelo. Qual ação possui maior expectativa de retorno?*
+
+**Aviso:** Este processo pode levar vários minutos.
+
+### Passo 1: Obtenção dos Dados do S&P 500
+
+```{r dados_sp500, cache=TRUE}
+# Obter a lista de tickers do S&P 500
+sp500_tickers <- GetSP500Stocks()$Tickers
+
+# Baixar dados a partir de 2021
+sp500_data <- BatchGetSymbols(tickers = sp500_tickers,
+                              first.date = start_date,
+                              last.date = end_date,
+                              type.return = "log",
+                              freq.data = "daily",
+                              cache.folder = file.path(tempdir(), 'BGS_Cache'))
+```
+
+### Passo 2: Modelagem e Previsão em Lote
+
+Criamos uma função para aplicar o `auto.arima` e prever o retorno para cada ação.
+
+```{r modelo_sp500, results='hide'}
+# Função para estimar o modelo e prever t+1
+estimate_and_forecast <- function(data) {
+  fit <- tryCatch({
+    auto.arima(data$ret.closing.prices, seasonal = FALSE)
+  }, error = function(e) { NULL })
+  
+  if (is.null(fit)) {
+    return(NA_real_)
+  } else {
+    return(forecast(fit, h = 1)$mean[1])
+  }
+}
+
+# Agrupar por ticker e aplicar a função
+forecasts_sp500 <- sp500_data$df.tickers %>%
+  select(ticker, ref.date, ret.closing.prices) %>%
+  na.omit() %>%
+  group_by(ticker) %>%
+  nest() %>%
+  mutate(previsao_t1 = map_dbl(data, estimate_and_forecast)) %>%
+  ungroup() %>%
+  select(ticker, previsao_t1) %>%
+  na.omit()
+```
+
+### Passo 3: Identificar a Maior Expectativa de Retorno
+
+Finalmente, ordenamos o resultado para encontrar a ação com a maior previsão de retorno.
+
+```{r resultado_sp500}
+# Ordenar em ordem decrescente de previsão
+resultado_final <- forecasts_sp500 %>%
+  arrange(desc(previsao_t1))
+
+# Exibir as 10 maiores expectativas de retorno
+cat("Ação com a maior expectativa de retorno para t+1:\n")
+print(head(resultado_final, 1))
+
+cat("\nTop 10 Ações por Expectativa de Retorno (Previsão ARMA):\n")
+print(head(resultado_final, 10))
+```
+
+---
+
+## Exercício 4: Backtesting de Estratégia no S&P 500
+
+**Enunciado:** *Separe os dados do SP500 em duas partes, etapa de estimação e etapa de previsão. Suponha que você queira, por exemplo, comprar a ação quando a previs˜ao de retorno for positiva, vendendo-a no dia seguinte. As previsões dos modelos ARIMA permitem a construção de uma estratégia de negociação lucrativa?*
+
+Demonstraremos o processo com uma única ação (`AAPL`) usando uma janela de previsão expansível.
+
+### Passo 1: Preparar Dados para uma Ação
+
+```{r backtest_prep}
+# Selecionar uma ação para o teste
+ticker_teste <- "AAPL"
+
+aapl_returns <- sp500_data$df.tickers %>%
+  dplyr::filter(ticker == ticker_teste) %>% # CORREÇÃO: Especificado dplyr::filter para evitar conflito
+  select(ref.date, ret.closing.prices) %>%
+  na.omit()
+
+# Definir o ponto de corte (80% treino, 20% teste)
+split_point <- floor(0.8 * nrow(aapl_returns))
+train_data <- aapl_returns[1:split_point, ]
+test_data <- aapl_returns[(split_point + 1):nrow(aapl_returns), ]
+```
+
+### Passo 2: Executar o Backtest
+
+Iteramos sobre o conjunto de teste, reestimando o modelo a cada passo para prever o dia seguinte.
+
+```{r backtest_run}
+# Vetor para armazenar os retornos da nossa estratégia
+strategy_returns <- c()
+
+# Loop através do período de teste
+for (i in 1:nrow(test_data)) {
+  current_train_set <- aapl_returns[1:(split_point + i - 1), "ret.closing.prices"]
+  model <- try(auto.arima(as.ts(current_train_set), seasonal = FALSE), silent = TRUE)
+  
+  if (inherits(model, "try-error")) {
+    signal <- 0
+  } else {
+    prediction <- forecast(model, h = 1)$mean[1]
+    signal <- ifelse(prediction > 0, 1, 0)
+  }
+  
+  actual_return <- test_data$ret.closing.prices[i]
+  strategy_returns[i] <- signal * actual_return
+}
+
+# Criar um dataframe com os resultados
+backtest_results <- tibble(
+  date = test_data$ref.date,
+  buy_hold_return = test_data$ret.closing.prices,
+  strategy_return = strategy_returns,
+  buy_hold_cumulative = cumsum(buy_hold_return),
+  strategy_cumulative = cumsum(strategy_return)
+)
+```
+
+### Passo 3: Análise de Lucratividade
+
+Comparamos o retorno acumulado da nossa estratégia com a estratégia "comprar e manter".
+
+```{r backtest_plot}
+# Plotar os retornos acumulados
+# CORREÇÃO: Removidos caracteres especiais dos rótulos para evitar erros de codificação.
+ggplot(backtest_results, aes(x = date)) +
+  geom_line(aes(y = buy_hold_cumulative, color = "Comprar e Manter (Buy & Hold)")) +
+  geom_line(aes(y = strategy_cumulative, color = "Estrategia ARMA")) +
+  labs(title = paste("Resultado do Backtest para", ticker_teste),
+       subtitle = "Estrategia ARMA vs. Comprar e Manter",
+       x = "Data",
+       y = "Retorno Acumulado") +
+  scale_color_manual(name = "Estrategia", values = c("Comprar e Manter (Buy & Hold)" = "firebrick", "Estrategia ARMA" = "navy")) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+# Calcular a performance final
+final_performance <- tail(backtest_results, 1) %>%
+  select(buy_hold_cumulative, strategy_cumulative)
+
+cat("Performance Final Acumulada:\n")
+print(final_performance)
+```
+
+**Conclusão do Backtest:**
+Geralmente, estratégias simples baseadas em modelos ARMA para prever a direção de retornos diários **não superam consistentemente uma estratégia de comprar e manter**, especialmente após considerar custos de transação. Os modelos ARMA capturam a autocorrelação linear, que é tipicamente muito fraca em retornos financeiros. O resultado específico do backtest pode variar, mas a conclusão geral na literatura é que modelos ARMA sozinhos raramente são suficientes para gerar estratégias de negociação consistentemente lucrativas.

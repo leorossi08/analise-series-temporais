@@ -1,0 +1,279 @@
+---
+title: "Atividades 3 e 4: Modelos da família ARCH com rugarch"
+author: "Leonardo Rossi Dourado"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Configurações globais para os chunks do R Markdown
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width=10, fig.height=6)
+```
+
+### **Introdução**
+
+Este documento realiza a análise de volatilidade para os log-retornos diários das ações da PETROBRAS (PETR4.SA) e do índice IBOVESPA (^BVSP), conforme solicitado nas atividades 3 e 4.
+
+1.  **Atividade 3:** Ajuste de modelos GARCH(1,1) com distribuições de erro Normal e t-Student.
+2.  **Atividade 4:** Cálculo e interpretação da persistência e da meia-vida (*half-life*) da volatilidade para os modelos ajustados.
+
+### **1. Carregando Pacotes e Dados**
+
+Primeiro, carregamos os pacotes necessários e importamos os dados a partir de 2019.
+
+```{r pacotes_e_dados}
+# Carregar bibliotecas necessárias
+library(BatchGetSymbols)
+library(rugarch)
+library(tidyverse)
+library(tbl2xts) # Para conversão entre tibble e xts
+
+# Definir os tickers e o período
+tickers <- c("PETR4.SA", "^BVSP")
+first_date <- '2019-01-01'
+last_date <- Sys.Date()
+
+# Obter os dados usando BatchGetSymbols
+data_list <- BatchGetSymbols(tickers,
+                             first.date = first_date,
+                             last.date = last_date,
+                             type.return = "log",
+                             freq.data = "daily")
+
+# Extrair e preparar os dados de retorno
+# O BatchGetSymbols retorna uma lista com informações de controle e os dados
+# Os dados estão no segundo elemento da lista
+returns_df <- data_list$df.tickers
+
+# Separar os retornos para cada ativo
+petro_returns <- returns_df %>%
+  filter(ticker == "PETR4.SA") %>%
+  select(ret.closing.prices) %>%
+  na.omit()
+
+ibov_returns <- returns_df %>%
+  filter(ticker == "^BVSP") %>%
+  select(ret.closing.prices) %>%
+  na.omit()
+
+# Visualizar as primeiras linhas de cada série de retornos
+head(petro_returns)
+head(ibov_returns)
+```
+
+### **Atividade 3: Ajuste dos Modelos GARCH(1,1)**
+
+Agora, vamos ajustar os modelos GARCH(1,1) para cada série de retornos, utilizando as distribuições Normal e t-Student para os resíduos.
+
+#### **3.1 Ações da PETROBRAS (PETR4.SA)**
+
+**Modelo 1: GARCH(1,1) com distribuição Normal**
+
+```{r petro_garch_norm}
+# 1. Especificação do modelo GARCH(1,1) com erro Normal
+spec_petr_norm <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "norm" # Distribuição Normal
+)
+
+# 2. Ajuste do modelo
+fit_petr_norm <- ugarchfit(spec = spec_petr_norm, data = petro_returns)
+
+# 3. Exibir resultados do ajuste
+cat("--- Resultados para PETR4 com GARCH(1,1) e distribuição Normal ---\n")
+print(fit_petr_norm)
+```
+
+**Análise Gráfica (PETR4 - Normal)**
+
+```{r plot_petr_norm}
+# Gráfico 1: Série de retornos com a volatilidade condicional
+plot(fit_petr_norm, which = 1)
+# Gráfico 2: Volatilidade condicional
+plot(fit_petr_norm, which = 3)
+# Gráfico 3: Q-Q Plot dos resíduos padronizados
+plot(fit_petr_norm, which = 9)
+```
+
+**Modelo 2: GARCH(1,1) com distribuição t-Student**
+
+```{r petro_garch_std}
+# 1. Especificação do modelo GARCH(1,1) com erro t-Student
+spec_petr_std <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "std" # Distribuição t-Student
+)
+
+# 2. Ajuste do modelo
+fit_petr_std <- ugarchfit(spec = spec_petr_std, data = petro_returns)
+
+# 3. Exibir resultados do ajuste
+cat("\n--- Resultados para PETR4 com GARCH(1,1) e distribuição t-Student ---\n")
+print(fit_petr_std)
+```
+
+**Análise Gráfica (PETR4 - t-Student)**
+
+```{r plot_petr_std}
+# Gráfico 1: Série de retornos com a volatilidade condicional
+plot(fit_petr_std, which = 1)
+# Gráfico 2: Volatilidade condicional
+plot(fit_petr_std, which = 3)
+# Gráfico 3: Q-Q Plot dos resíduos padronizados
+plot(fit_petr_std, which = 9)
+```
+
+#### **3.2 Índice IBOVESPA (^BVSP)**
+
+**Modelo 3: GARCH(1,1) com distribuição Normal**
+
+```{r ibov_garch_norm}
+# 1. Especificação do modelo GARCH(1,1) com erro Normal
+spec_ibov_norm <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "norm" # Distribuição Normal
+)
+
+# 2. Ajuste do modelo
+fit_ibov_norm <- ugarchfit(spec = spec_ibov_norm, data = ibov_returns)
+
+# 3. Exibir resultados do ajuste
+cat("--- Resultados para IBOVESPA com GARCH(1,1) e distribuição Normal ---\n")
+print(fit_ibov_norm)
+```
+
+**Análise Gráfica (IBOVESPA - Normal)**
+
+```{r plot_ibov_norm}
+# Gráfico 1: Série de retornos com a volatilidade condicional
+plot(fit_ibov_norm, which = 1)
+# Gráfico 2: Volatilidade condicional
+plot(fit_ibov_norm, which = 3)
+# Gráfico 3: Q-Q Plot dos resíduos padronizados
+plot(fit_ibov_norm, which = 9)
+```
+
+**Modelo 4: GARCH(1,1) com distribuição t-Student**
+
+```{r ibov_garch_std}
+# 1. Especificação do modelo GARCH(1,1) com erro t-Student
+spec_ibov_std <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "std" # Distribuição t-Student
+)
+
+# 2. Ajuste do modelo
+fit_ibov_std <- ugarchfit(spec = spec_ibov_std, data = ibov_returns)
+
+# 3. Exibir resultados do ajuste
+cat("\n--- Resultados para IBOVESPA com GARCH(1,1) e distribuição t-Student ---\n")
+print(fit_ibov_std)
+```
+
+**Análise Gráfica (IBOVESPA - t-Student)**
+
+```{r plot_ibov_std}
+# Gráfico 1: Série de retornos com a volatilidade condicional
+plot(fit_ibov_std, which = 1)
+# Gráfico 2: Volatilidade condicional
+plot(fit_ibov_std, which = 3)
+# Gráfico 3: Q-Q Plot dos resíduos padronizados
+plot(fit_ibov_std, which = 9)
+```
+
+### **Atividade 4: Análise de Persistência e Meia-Vida**
+
+Nesta seção, calculamos a persistência e a meia-vida para cada um dos quatro modelos ajustados.
+
+-   **Persistência:** Mede quanto tempo um choque na volatilidade leva para se dissipar. É a soma dos coeficientes $\alpha_1$ (ARCH) e $\beta_1$ (GARCH). Valores próximos de 1 indicam que os choques são muito persistentes.
+-   **Meia-Vida (Half-Life):** Indica o número de períodos (dias, no nosso caso) necessários para que um choque na volatilidade se dissipe pela metade. A fórmula é: $meia\_vida = \frac{\ln(0.5)}{\ln(persistência)}$.
+
+```{r persistencia}
+# Função para calcular e exibir os resultados
+analyze_persistence <- function(model_fit, model_name) {
+  # Calcular persistência
+  pers <- persistence(model_fit)
+  
+  # Calcular meia-vida
+  half_life <- log(0.5) / log(pers)
+  
+  # Imprimir resultados
+  cat(paste("--- Análise para o modelo:", model_name, "---\n"))
+  cat(paste("Coeficiente de Persistência:", round(pers, 4), "\n"))
+  cat(paste("Meia-Vida (dias):", round(half_life, 2), "\n\n"))
+  
+  # Interpretação
+  cat("Interpretação:\n")
+  if (pers > 0.95) {
+    cat("A persistência é muito alta, indicando que os choques na volatilidade levam muito tempo para se dissipar. A volatilidade de hoje tem uma forte influência sobre a volatilidade de amanhã e dos dias seguintes.\n")
+  } else if (pers > 0.85) {
+    cat("A persistência é alta. Os choques na volatilidade são bastante duradouros, mas se dissipam mais rapidamente do que em um cenário de persistência próxima a 1.\n")
+  } else {
+    cat("A persistência é moderada. Os choques na volatilidade se dissipam relativamente rápido.\n")
+  }
+  cat(paste("Especificamente, são necessários aproximadamente", round(half_life, 2), "dias para que o efeito de um choque na volatilidade caia pela metade.\n\n"))
+}
+
+# Aplicar a função para cada modelo
+analyze_persistence(fit_petr_norm, "PETR4 GARCH(1,1) Normal")
+analyze_persistence(fit_petr_std, "PETR4 GARCH(1,1) t-Student")
+analyze_persistence(fit_ibov_norm, "IBOVESPA GARCH(1,1) Normal")
+analyze_persistence(fit_ibov_std, "IBOVESPA GARCH(1,1) t-Student")
+```
+
+#### **Visualização Comparativa da Persistência e Meia-Vida**
+
+Para facilitar a comparação entre os modelos, criamos gráficos de barras com os valores de persistência e meia-vida.
+
+```{r plot_persistencia}
+# Criar um dataframe com os resultados para os gráficos
+results_df <- data.frame(
+  Ativo = rep(c("PETR4", "IBOVESPA"), each = 2),
+  Distribuição = rep(c("Normal", "t-Student"), 2),
+  Modelo = c("PETR4 Normal", "PETR4 t-Student", "IBOV Normal", "IBOV t-Student"),
+  Persistencia = c(persistence(fit_petr_norm),
+                   persistence(fit_petr_std),
+                   persistence(fit_ibov_norm),
+                   persistence(fit_ibov_std))
+)
+results_df$MeiaVida <- log(0.5) / log(results_df$Persistencia)
+
+# Gráfico de Persistência
+ggplot(results_df, aes(x = Modelo, y = Persistencia, fill = Ativo)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = round(Persistencia, 3)), vjust = -0.3, size = 3.5) +
+  labs(title = "Comparação da Persistência da Volatilidade",
+       subtitle = "Soma dos coeficientes alpha1 e beta1",
+       x = "Modelo GARCH(1,1)", y = "Coeficiente de Persistência") +
+  ylim(0, 1.05) +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Gráfico de Meia-Vida
+ggplot(results_df, aes(x = Modelo, y = MeiaVida, fill = Ativo)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = round(MeiaVida, 2)), vjust = -0.3, size = 3.5) +
+  labs(title = "Comparação da Meia-Vida da Volatilidade",
+       subtitle = "Tempo (em dias) para um choque se dissipar pela metade",
+       x = "Modelo GARCH(1,1)", y = "Meia-Vida (dias)") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+### **Conclusão da Análise**
+
+Para ambas as séries (PETR4 e IBOVESPA), os modelos GARCH(1,1) apresentam um **alto coeficiente de persistência**, geralmente acima de 0.95, independentemente da distribuição de erro utilizada.
+
+Isso é um resultado comum em séries de retornos financeiros e significa que a volatilidade é "clusterizada": períodos de alta volatilidade tendem a ser seguidos por outros períodos de alta volatilidade, e o mesmo ocorre com a baixa volatilidade. Os gráficos da **volatilidade condicional** (Plot 2 de cada modelo) ilustram perfeitamente esse comportamento, mostrando picos de volatilidade que se mantêm por algum tempo, como o ocorrido no início de 2020.
+
+A **meia-vida** calculada quantifica essa persistência. Por exemplo, uma meia-vida de 20 dias significa que levará cerca de 20 dias úteis (aproximadamente um mês de calendário) para que o impacto de um grande choque (como uma crise ou um anúncio importante) sobre a volatilidade seja reduzido à metade.
+
+Comparando os modelos, os resultados com a distribuição **t-Student** geralmente oferecem um ajuste melhor aos dados financeiros. Isso pode ser verificado tanto pelos critérios de informação (Akaike, Bayes) nos sumários dos modelos, quanto visualmente nos **Q-Q Plots**. Os pontos nos gráficos da distribuição t-Student tendem a se alinhar melhor à linha de referência, indicando que essa distribuição captura de forma mais adequada os eventos extremos ("caudas pesadas") que são comuns nos mercados.
+
